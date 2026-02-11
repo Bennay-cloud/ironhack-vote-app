@@ -1,0 +1,126 @@
+---
+- name: Deploy postgres on db host
+  hosts: db
+  become: true
+  tasks:
+    - name: Create postgres volume
+      community.docker.docker_volume:
+        name: db-data
+
+    - name: Run postgres container
+      community.docker.docker_container:
+        name: db
+        image: postgres:15-alpine
+        pull: true
+        recreate: true
+        restart: true
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: "postgres"
+          POSTGRES_PASSWORD: "postgres"
+          POSTGRES_DB: "postgres"
+        volumes:
+          - "db-data:/var/lib/postgresql/data"
+
+- name: Deploy redis + worker on backend host
+  hosts: backend
+  become: true
+  tasks:
+    - name: Create docker network (shared)
+      community.docker.docker_network:
+        name: back-tier
+
+    - name: Create redis volume
+      community.docker.docker_volume:
+        name: redis-data
+
+    - name: Run redis container
+      community.docker.docker_container:
+        name: redis
+        image: redis:alpine
+        pull: true
+        recreate: true
+        restart: true
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "6379:6379"
+        volumes:
+          - "redis-data:/data"
+        networks:
+          - name: back-tier
+
+    - name: Wait for Postgres to be reachable from backend
+      ansible.builtin.wait_for:
+        host: "{{ hostvars['musti-c'].ansible_host }}"
+        port: 5432
+        timeout: 120
+
+    - name: Run worker container
+      community.docker.docker_container:
+        name: worker
+        image: bennay/worker:latest
+        pull: true
+        recreate: true
+        restart: true
+        state: started
+        restart_policy: unless-stopped
+        env:
+          REDIS_HOST: "redis"
+          DB_HOST: "{{ hostvars['musti-c'].ansible_host }}"
+          DB_USERNAME: "postgres"
+          DB_PASSWORD: "postgres"
+          DB_NAME: "postgres"
+        networks:
+          - name: back-tier
+
+- name: Deploy vote + result on frontend host
+  hosts: frontend
+  become: true
+  tasks:
+    - name: Wait for Redis to be reachable from frontend
+      ansible.builtin.wait_for:
+        host: "{{ hostvars['musti-b'].ansible_host }}"
+        port: 6379
+        timeout: 120
+
+    - name: Wait for Postgres to be reachable from frontend
+      ansible.builtin.wait_for:
+        host: "{{ hostvars['musti-c'].ansible_host }}"
+        port: 5432
+        timeout: 120
+
+    - name: Run vote container
+      community.docker.docker_container:
+        name: vote
+        image: bennay/vote:latest
+        pull: true
+        recreate: true
+        restart: true
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "8080:80"
+        env:
+          REDIS_HOST: "{{ hostvars['musti-b'].ansible_host }}"
+
+    - name: Run result container
+      community.docker.docker_container:
+        name: result
+        image: bennay/result:latest
+        pull: true
+        recreate: true
+        restart: true
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "8081:80"
+        env:
+          PG_HOST: "{{ hostvars['musti-c'].ansible_host }}"
+          PG_PORT: "5432"
+          PG_USER: "postgres"
+          PG_PASSWORD: "postgres"
+          PG_DATABASE: "postgres"

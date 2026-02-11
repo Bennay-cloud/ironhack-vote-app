@@ -1,0 +1,31 @@
+- name: Install and start Docker on all hosts
+  hosts: all
+  become: yes
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker.io
+          - python3-pip
+        state: present
+
+    - name: Install python docker SDK for Ansible
+      pip:
+        name: docker
+
+    - name: Enable and start docker service
+      systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes

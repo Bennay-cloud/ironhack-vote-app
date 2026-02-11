@@ -1,0 +1,46 @@
+- name: Verify frontend (vote + result) endpoints on instance A
+  hosts: frontend
+  become: true
+  tasks:
+    - name: Check vote page is reachable
+      ansible.builtin.shell: "curl -fsS http://localhost:8080/ >/dev/null"
+      changed_when: false
+
+    - name: Check result page is reachable
+      ansible.builtin.shell: "curl -fsS http://localhost:8081/ >/dev/null"
+      changed_when: false
+
+- name: Verify backend (redis + worker) on instance B
+  hosts: backend
+  become: true
+  tasks:
+    - name: Redis responds to ping
+      ansible.builtin.shell: "docker exec redis redis-cli ping"
+      register: redis_ping
+      changed_when: false
+
+    - name: Show redis ping
+      ansible.builtin.debug:
+        var: redis_ping.stdout
+
+    - name: Show last worker logs
+      ansible.builtin.shell: "docker logs --tail=30 worker"
+      register: worker_logs
+      changed_when: false
+
+    - name: Print worker logs
+      ansible.builtin.debug:
+        var: worker_logs.stdout_lines
+
+- name: Verify database has votes on instance C
+  hosts: db
+  become: true
+  tasks:
+    - name: Count votes in Postgres
+      ansible.builtin.shell: "docker exec db psql -U postgres -d postgres -c 'select count(*) from votes;'"
+      register: vote_count
+      changed_when: false
+
+    - name: Print vote count
+      ansible.builtin.debug:
+        var: vote_count.stdout_lines
