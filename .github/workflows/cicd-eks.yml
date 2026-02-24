@@ -1,0 +1,73 @@
+name: CI-CD Voting App (EKS)
+
+on:
+  push:
+    branches: [ "dev" ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ca-central-1
+  EKS_CLUSTER_NAME: musti-cluster
+  K8S_NAMESPACE: vote-app
+  DOCKERHUB_USERNAME: bennay
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push vote
+        run: |
+          docker build -t $DOCKERHUB_USERNAME/vote:latest ./vote
+          docker push $DOCKERHUB_USERNAME/vote:latest
+
+      - name: Build & Push result
+        run: |
+          docker build -t $DOCKERHUB_USERNAME/result:latest ./result
+          docker push $DOCKERHUB_USERNAME/result:latest
+
+      - name: Build & Push worker
+        run: |
+          docker build -t $DOCKERHUB_USERNAME/worker:latest ./worker
+          docker push $DOCKERHUB_USERNAME/worker:latest
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+          kubectl version --client
+
+      - name: Update kubeconfig (EKS)
+        run: |
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+          kubectl get nodes
+
+      - name: Deploy manifests
+        run: |
+          kubectl apply -n "$K8S_NAMESPACE" -f k8s/
+          kubectl rollout status -n "$K8S_NAMESPACE" deploy/vote --timeout=120s
+          kubectl rollout status -n "$K8S_NAMESPACE" deploy/result --timeout=120s
+          kubectl rollout status -n "$K8S_NAMESPACE" deploy/worker --timeout=120s
+
+      - name: Validate
+        run: |
+          kubectl -n "$K8S_NAMESPACE" get deploy
+          kubectl -n "$K8S_NAMESPACE" get pods
+          kubectl -n "$K8S_NAMESPACE" get ingress
