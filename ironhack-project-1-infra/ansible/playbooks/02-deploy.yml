@@ -1,37 +1,37 @@
----
+--- # 1 Deploy Postgres (on instance C)
 - name: Deploy postgres on db host
-  hosts: db
-  become: true
+  hosts: db # run ONLY on the inventory group [db]
+  become: true # use sudo
   tasks:
-    - name: Create postgres volume
+    - name: Create postgres volume  # Create volume (persistent data)
       community.docker.docker_volume:
         name: db-data
 
     - name: Run postgres container
-      community.docker.docker_container:
+      community.docker.docker_container: # Runs a container named db from image postgres:15-alpine.
         name: db
         image: postgres:15-alpine
-        pull: true
-        recreate: true
-        restart: true
-        state: started
-        restart_policy: unless-stopped
+        pull: true  # pull latest version of the tag 
+        recreate: true # means if config changes → container gets recreated.
+        restart: true # Ansible will restart it when needed.
+        state: started  # ensures container is running.
+        restart_policy: unless-stopped  # auto-start after reboot unless I manually stopped it
         published_ports:
-          - "5432:5432"
-        env:
+          - "5432:5432"  # Maps host port 5432 → container port 5432.
+        env:  # Standard postgres container env vars for initial DB init.
           POSTGRES_USER: "postgres"
           POSTGRES_PASSWORD: "postgres"
           POSTGRES_DB: "postgres"
         volumes:
-          - "db-data:/var/lib/postgresql/data"
-
+          - "db-data:/var/lib/postgresql/data"  # persistent storage mapping
+# 2 Deploy Redis + Worker (on instance B)
 - name: Deploy redis + worker on backend host
   hosts: backend
   become: true
   tasks:
     - name: Create docker network (shared)
       community.docker.docker_network:
-        name: back-tier
+        name: back-tier  # Creates a Docker network called back-tier.
 
     - name: Create redis volume
       community.docker.docker_volume:
@@ -46,18 +46,18 @@
         restart: true
         state: started
         restart_policy: unless-stopped
-        published_ports:
+        published_ports:  # Exposes redis on the host’s port 6379 (so Vote on instance A can connect via backend private IP).
           - "6379:6379"
         volumes:
           - "redis-data:/data"
         networks:
           - name: back-tier
 
-    - name: Wait for Postgres to be reachable from backend
+    - name: Wait for Postgres to be reachable from backend # This prevents worker starting before DB is ready.
       ansible.builtin.wait_for:
         host: "{{ hostvars['musti-c'].ansible_host }}"
         port: 5432
-        timeout: 120
+        timeout: 120  # It blocks up to 120 seconds until 10.10.2.111:5432 is reachable from B.
 
     - name: Run worker container
       community.docker.docker_container:
@@ -76,7 +76,7 @@
           DB_NAME: "postgres"
         networks:
           - name: back-tier
-
+# 3 Deploy Vote + Result (on instance A)
 - name: Deploy vote + result on frontend host
   hosts: frontend
   become: true
@@ -103,7 +103,7 @@
         state: started
         restart_policy: unless-stopped
         published_ports:
-          - "8080:80"
+          - "8080:80" # Exposes vote on http://<A_public_ip>:8080
         env:
           REDIS_HOST: "{{ hostvars['musti-b'].ansible_host }}"
 
@@ -117,7 +117,7 @@
         state: started
         restart_policy: unless-stopped
         published_ports:
-          - "8081:80"
+          - "8081:80"  # Exposes result on http://<A_public_ip>:8081
         env:
           PG_HOST: "{{ hostvars['musti-c'].ansible_host }}"
           PG_PORT: "5432"

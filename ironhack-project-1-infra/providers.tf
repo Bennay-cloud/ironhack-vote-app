@@ -8,6 +8,6 @@ terraform {
   }
 }
 
-provider "aws" {
+provider "aws" {chmod
   region = var.region
 }

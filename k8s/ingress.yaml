@@ -1,0 +1,48 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vote-app-ingress
+  namespace: vote-app
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      # Result app
+      - path: /result(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: result-service
+            port:
+              number: 80
+
+      # Vote app
+      - path: /vote(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: vote-service
+            port:
+              number: 80
+
+      # Vote static assets (because HTML references /static/...)
+      - path: /static(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: vote-service
+            port:
+              number: 80
+
+      # IMPORTANT: Vote form submits to action="/"
+      # So POST / must reach vote-service
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vote-service
+            port:
+              number: 80

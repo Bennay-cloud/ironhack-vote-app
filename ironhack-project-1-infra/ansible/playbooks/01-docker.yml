@@ -1,29 +1,29 @@
 - name: Install and start Docker on all hosts
-  hosts: all
-  become: yes
-  tasks:
-    - name: Update apt cache
+  hosts: all  #Run this play on every host in the inventory
+  become: yes #Run as sudo
+  tasks: # 1 Update package index
+    - name: Update apt cache #sudo apt update
       apt:
         update_cache: yes
-        cache_valid_time: 3600
-
-    - name: Install Docker
+        cache_valid_time: 3600 #Only run apt update if last update > 1 hour ago
+  # 2 Install Docker + pip
+    - name: Install Docker  #Installs: Docker engine & Python pip. Equivalent to: sudo apt install docker.io python3-pip -y
       apt:
         name:
           - docker.io
           - python3-pip
-        state: present
-
-    - name: Install python docker SDK for Ansible
+        state: present   # Install if missing, do nothing if already installed
+  # 3 Install Python Docker SDK
+    - name: Install python docker SDK for Ansible   #Installs Python library because Ansible's modules like docker_container & docker_volume &  docker_network need this library
       pip:
         name: docker
-
+  # 4 Start Docker service / Equivalent commands: sudo systemctl start docker & sudo systemctl enable docker
     - name: Enable and start docker service
       systemd:
         name: docker
         enabled: true
         state: started
-
+  # 5 Allow ubuntu user to run docker. Equivalent : sudo usermod -aG docker ubuntu
     - name: Add ubuntu user to docker group
       user:
         name: ubuntu
